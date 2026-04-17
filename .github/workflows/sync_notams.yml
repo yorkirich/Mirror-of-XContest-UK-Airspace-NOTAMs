@@ -1,0 +1,38 @@
+name: Sync XContest NOTAMs
+
+on:
+  schedule:
+    - cron: '0 */4 * * *' # Every 4 hours
+  workflow_dispatch:      # This adds the "Run workflow" button in GitHub
+
+permissions:
+  contents: write         # Allows the bot to save files back to your repo
+
+jobs:
+  update-airspace:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download NOTAM Files
+        run: |
+          mkdir -p airspace_data
+          for i in {0..7}; do
+            TARGET_DATE=$(date -d "+$i days" +%Y-%m-%d)
+            URL="https://airspace.xcontest.org/web/country/10?start=${TARGET_DATE}-SR&restrictlang=1&skip=&aircatpg=1&skip_alerts=1&end=SS&skip_foreign_ids=10"
+            echo "Downloading $TARGET_DATE..."
+            curl -L "$URL" -o "airspace_data/airspace-${TARGET_DATE}.geojson"
+          done
+
+      - name: Delete files older than 7 days
+        run: |
+          # Finds files in the folder modified more than 7 days ago and deletes them
+          find airspace_data/ -name "*.geojson" -type f -mtime +7 -delete
+
+      - name: Commit and Push
+        run: |
+          git config --global user.name "Airspace Bot"
+          git config --global user.email "bot@example.com"
+          git add airspace_data/*.geojson
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update NOTAMs for $(date +'%Y-%m-%d')" && git push)

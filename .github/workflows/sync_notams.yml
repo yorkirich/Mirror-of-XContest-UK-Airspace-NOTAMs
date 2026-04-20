@@ -27,8 +27,8 @@ jobs:
 
       - name: Delete files older than 7 days
         run: |
-          # Finds files in the folder modified more than 7 days ago and deletes them
-          find airspace_data/ -name "*.geojson" -type f -mtime +7 -delete
+          # Finds files in the folder modified more than 730 days ago and deletes them
+          find airspace_data/ -name "*.geojson" -type f -mtime +730 -delete
 
       - name: Commit and Push
         run: |

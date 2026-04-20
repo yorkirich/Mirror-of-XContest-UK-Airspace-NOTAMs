@@ -2,11 +2,11 @@ name: Sync XContest NOTAMs
 
 on:
   schedule:
-    - cron: '0 */4 * * *' # Every 4 hours
-  workflow_dispatch:      # This adds the "Run workflow" button in GitHub
+    - cron: '0 */4 * * *' # Runs every 4 hours
+  workflow_dispatch:      # Allows manual triggers via the "Actions" tab
 
 permissions:
-  contents: write         # Allows the bot to save files back to your repo
+  contents: write         # Essential: Gives the bot permission to push changes
 
 jobs:
   update-airspace:
@@ -18,21 +18,48 @@ jobs:
       - name: Download NOTAM Files
         run: |
           mkdir -p airspace_data
+          # Loop through next 7 days to ensure we have future data
           for i in {0..7}; do
             TARGET_DATE=$(date -d "+$i days" +%Y-%m-%d)
             URL="https://airspace.xcontest.org/web/country/10?start=${TARGET_DATE}-SR&restrictlang=1&skip=&aircatpg=1&skip_alerts=1&end=SS&skip_foreign_ids=10"
-            echo "Downloading $TARGET_DATE..."
+            echo "Downloading airspace for $TARGET_DATE..."
             curl -L "$URL" -o "airspace_data/airspace-${TARGET_DATE}.geojson"
           done
 
-      - name: Delete files older than 7 days
+      - name: Delete files older than 2 years
         run: |
-          # Finds files in the folder modified more than 730 days ago and deletes them
-          find airspace_data/ -name "*.geojson" -type f -mtime +730 -delete
+          # Calculate the cutoff date (730 days ago) in YYYYMMDD format for easy comparison
+          CUTOFF_DATE=$(date -d "730 days ago" +%Y%m%d)
+          echo "Cutoff date is $CUTOFF_DATE. Checking for expired files..."
+          
+          # Iterate through files using the filename to determine age
+          # This avoids the metadata issues with 'mtime' in GitHub Actions
+          for file in airspace_data/airspace-*.geojson; do
+            # Extract date from filename (e.g., airspace-2023-01-01.geojson -> 20230101)
+            FILE_DATE_STR=$(basename "$file" | sed 's/airspace-//; s/.geojson//; s/-//g')
+            
+            # Compare numeric dates
+            if [ "$FILE_DATE_STR" -lt "$CUTOFF_DATE" ]; then
+              echo "Removing obsolete file: $file"
+              rm "$file"
+            fi
+          done
 
       - name: Commit and Push
         run: |
+          # Configure the bot identity
           git config --global user.name "Airspace Bot"
           git config --global user.email "bot@example.com"
+          
+          # Stage both new files and deletions
           git add airspace_data/*.geojson
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update NOTAMs for $(date +'%Y-%m-%d')" && git push)
+          
+          # Only commit and push if there are actual changes (new data or deletions)
+          # 'git diff --staged --quiet' returns 1 if there are changes
+          if ! git diff --staged --quiet; then
+            echo "Changes detected. Committing to repository..."
+            git commit -m "Automated Airspace Update: $(date +'%Y-%m-%d')"
+            git push
+          else
+            echo "No changes found. Skipping commit."
+          fi
